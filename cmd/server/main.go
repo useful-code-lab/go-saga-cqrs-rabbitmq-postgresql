@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,5 +77,34 @@ func main() {
 	})
 
 	log.Println("[SYSTEM] API запущен на :8080. Доступны /orders (POST) и /status (GET)")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	server := &http.Server{Addr: ":8080"}
+	// Канал для прослушивания системных сигналов (Ctrl+C, SIGTERM)
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	// Запуск HTTP-сервера в отдельной горутине
+	go func() {
+		log.Println("[SYSTEM] API запущен на :8080")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Ошибка сервера: %s", err)
+		}
+	}()
+
+	// Ожидание сигнала на выход
+	<-stop
+	log.Println("\n[SYSTEM] Завершение работы...")
+
+	// Даем серверу 5 секунд на завершение текущих запросов
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Ошибка при остановке сервера: %v", err)
+	}
+
+	// Корректно закрываем инфраструктуру
+	client.Close() // Закроет каналы RabbitMQ без потери ACK
+	// repo.Close() // Если вы добавили метод Close в storage
+
+	log.Println("[SYSTEM] Все соединения закрыты. Выход.")
 }

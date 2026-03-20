@@ -1,3 +1,32 @@
+# Distributed Integrity Orchestrator (DIO) 🚀
+
+### Референсная реализация паттернов Saga и CQRS на языке Go
+
+Проект демонстрирует решение проблемы **распределенных транзакций** в микросервисной архитектуре. Вместо тяжелых двухфазных коммитов (2PC) используется асинхронная **Saga (Оркестрация)** для обеспечения Eventual Consistency.
+
+---
+
+## 🏗 Архитектура системы
+
+Проект разделен на три логических слоя, взаимодействующих через **RabbitMQ**:
+
+1.  **CQRS (Command Side)**: HTTP POST создает заказ в PostgreSQL со статусом `PENDING`.
+2.  **Saga Orchestrator**: «Мозг» системы. Слушает ответы от склада и принимает решение: подтвердить заказ (`COMPLETED`) или выполнить откат (`REJECTED`).
+3.  **CQRS (Query Side)**: Мгновенное чтение текущего состояния заказа без блокировки транзакций.
+
+
+🛠 Управление проектом (Makefile)
+Автоматизация типовых операций для быстрого развертывания и тестирования.
+Команда	Описание
+- `make up`	Развернуть PostgreSQL и RabbitMQ (Docker).
+- `make down`	Остановить и удалить инфраструктуру.
+- `make db-init`	Инициализировать схему БД (init.sql).
+- `make run`	Запустить основной сервис Go.
+- `make test-order`	Создать тестовый заказ через curl.
+- `make tidy`	Очистить и обновить зависимости Go.
+
+## Демонстрация работы Saga-оркестратора: от HTTP-запроса до завершения транзакции
+
 ```
 docker-compose up -d
 ```
@@ -80,4 +109,15 @@ aleksey@aleksey:~/distributed-integrity-orchestrator$ curl -X POST http://localh
 aleksey@aleksey:~/distributed-integrity-orchestrator$ curl -X POST http://localhost:8080/status?id=6983d6d9-25de-4e87-be12-34fb76cf1194
 {"id":"6983d6d9-25de-4e87-be12-34fb76cf1194","status":"COMPLETED"}
 aleksey@aleksey:~/distributed-integrity-orchestrator$ 
+```
+
+Реализовано корректное завершение
+```bash
+aleksey@aleksey:~/distributed-integrity-orchestrator$ go run cmd/server/main.go
+2026/03/20 13:11:52 [SYSTEM] API запущен на :8080. Доступны /orders (POST) и /status (GET)
+2026/03/20 13:11:52 [SYSTEM] API запущен на :8080
+2026/03/20 13:12:10 [SAGA] УСПЕХ: Заказ eaece8cb-9059-4c55-89da-01e2da11aa18 переведен в статус COMPLETED
+^C2026/03/20 13:13:45 
+[SYSTEM] Завершение работы...
+2026/03/20 13:13:45 [SYSTEM] Все соединения закрыты. Выход.
 ```
