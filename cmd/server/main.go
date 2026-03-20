@@ -1,65 +1,48 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
+	"gitverse.ru/pavlov-systems/distributed-integrity-orchestrator/internal/saga"
 	"gitverse.ru/pavlov-systems/distributed-integrity-orchestrator/internal/storage"
 	"gitverse.ru/pavlov-systems/distributed-integrity-orchestrator/internal/transport"
+	"gitverse.ru/pavlov-systems/distributed-integrity-orchestrator/pkg/events"
 )
 
 func main() {
-	// Создаем клиент (используем credentials из docker-compose)
+	// 1. Инфраструктура
 	rabbitAddr := "amqp://guest:guest@localhost:5672/"
-	client, err := transport.NewRabbitClient(rabbitAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
+	client, _ := transport.NewRabbitClient(rabbitAddr)
 	defer client.Close()
 
-	// Инициализация БД (Write Model)
 	dbAddr := "postgres://dio_admin:dio_password@localhost:5432/orders_db?sslmode=disable"
-	repo, err := storage.NewOrderRepository(dbAddr)
-	if err != nil {
-		log.Fatal("Ошибка БД:", err)
-	}
+	repo, _ := storage.NewOrderRepository(dbAddr)
 
-	// 2. Инициализируем необходимые очереди для Саги
-	queues := []string{"order.created", "stock.reserved"}
-	for _, q := range queues {
-		if err := client.SetupQueue(q); err != nil {
-			log.Fatalf("Ошибка создания очереди %s: %v", q, err)
-		}
-	}
+	// 2. Инициализация Оркестратора
+	orc := saga.NewOrchestrator(repo, client)
 
-	// 3. ТЕСТ: Создаем заказ в БД
-	testID := uuid.New().String()
-	err = repo.CreateOrder(testID, "SKU-99", 2)
-	if err != nil {
-		log.Printf("Ошибка создания заказа: %v", err)
-	} else {
-		log.Printf("Заказ %s успешно сохранен в БД со статусом PENDING", testID)
-	}
-
-	// ТЕСТ: Отправляем сообщение
-	testMessage := []byte(`{"order_id": "test-123", "status": "ping"}`)
-	err = client.Publish("order.created", testMessage)
-	if err != nil {
-		log.Printf("Ошибка отправки: %v", err)
-	}
-
-	// ТЕСТ: Читаем сообщение
-	msgs, _ := client.Consume("order.created")
+	// 3. Подписка на ответы от Склада (Stock Service)
+	stockMsgs, _ := client.Consume("stock.reserved")
 	go func() {
-		for d := range msgs {
-			log.Printf("Успешно получено тестовое сообщение: %s", d.Body)
+		for d := range stockMsgs {
+			orc.ProcessStockResponse(d.Body)
 		}
 	}()
 
-	status, _ := repo.GetOrderStatus(testID)
-	log.Printf("Текущий статус заказа в БД: %s", status)
+	// 4. Имитация создания нового заказа (Command CQRS)
+	orderID := uuid.New().String()
+	_ = repo.CreateOrder(orderID, "IPHONE-15", 1)
+	log.Printf("[API] Создан заказ %s, статус PENDING", orderID)
 
-	// Оставляем программу запущенной
+	// Отправляем событие в шину для склада
+	event := events.OrderCreated{OrderID: orderID, ItemID: "IPHONE-15", Quantity: 1, CreatedAt: time.Now()}
+	body, _ := json.Marshal(event)
+	_ = client.Publish("order.created", body)
+
+	// Оставляем сервер работать
+	log.Println("[SYSTEM] Оркестратор запущен. Ожидание событий...")
 	select {}
-
 }
