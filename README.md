@@ -59,3 +59,25 @@ aleksey@aleksey:~/distributed-integrity-orchestrator$ go run cmd/server/main.go
 2026/03/20 12:35:48 Успешно получено тестовое сообщение: {"order_id": "test-123", "status": "ping"}
 2026/03/20 12:35:48 Текущий статус заказа в БД: PENDING
 ```
+
+```bash
+aleksey@aleksey:~/distributed-integrity-orchestrator$ go run cmd/server/main.go
+2026/03/20 13:02:24 [SYSTEM] API запущен на :8080. Доступны /orders (POST) и /status (GET)
+2026/03/20 13:02:26 [SAGA] УСПЕХ: Заказ 2f89b49f-5d18-4215-a823-2953e5476fe2 переведен в статус COMPLETED
+2026/03/20 13:02:40 [SAGA] УСПЕХ: Заказ 6983d6d9-25de-4e87-be12-34fb76cf1194 переведен в статус COMPLETED
+```
+
+Реализация полного цикла программы
+```bash
+aleksey@aleksey:~/distributed-integrity-orchestrator$ curl -X POST http://localhost:8080/orders
+{"id":"6983d6d9-25de-4e87-be12-34fb76cf1194","status":"PENDING"}
+aleksey@aleksey:~/distributed-integrity-orchestrator$ curl -X POST http://localhost:8080/orders
+{"id":"c678db0a-1d84-40b9-9bd2-36b927cc8973","status":"PENDING"}
+aleksey@aleksey:~/distributed-integrity-orchestrator$ curl -X POST http://localhost:8080/status
+{"id":"","status":""}
+aleksey@aleksey:~/distributed-integrity-orchestrator$ curl -X POST http://localhost:8080/status?id=c678db0a-1d84-40b9-9bd2-36b927cc8973
+{"id":"c678db0a-1d84-40b9-9bd2-36b927cc8973","status":"COMPLETED"}
+aleksey@aleksey:~/distributed-integrity-orchestrator$ curl -X POST http://localhost:8080/status?id=6983d6d9-25de-4e87-be12-34fb76cf1194
+{"id":"6983d6d9-25de-4e87-be12-34fb76cf1194","status":"COMPLETED"}
+aleksey@aleksey:~/distributed-integrity-orchestrator$ 
+```
